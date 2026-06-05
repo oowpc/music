@@ -29,3 +29,4 @@ data/
 # 配置文件（本地）
 *.local.cfg
 .env
+idea/
