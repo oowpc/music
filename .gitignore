@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+
+# 数据目录（完全忽略）
+data/
+
+# 临时文件
+*.log
+*.tmp
+*.aux
+*.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+
+# 配置文件（本地）
+*.local.cfg
+.env
