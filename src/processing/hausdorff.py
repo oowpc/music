@@ -79,3 +79,33 @@ def frechet_discrete(a_points: np.ndarray, b_points: np.ndarray) -> float:
                 )
 
     return float(costs[-1, -1])
+
+
+def dtw_distance(a_points: np.ndarray, b_points: np.ndarray) -> float:
+    """Return normalized Dynamic Time Warping distance between ordered curves.
+
+    The accumulated path cost is divided by the warping path length, which keeps
+    distances comparable across melodies with different point counts.
+    """
+    a_points = _validate_points(a_points, "a_points")
+    b_points = _validate_points(b_points, "b_points")
+
+    rows, cols = len(a_points), len(b_points)
+    costs = np.full((rows + 1, cols + 1), np.inf, dtype=np.float64)
+    lengths = np.zeros((rows + 1, cols + 1), dtype=np.int32)
+    costs[0, 0] = 0.0
+
+    for row in range(1, rows + 1):
+        for col in range(1, cols + 1):
+            step_distance = float(np.linalg.norm(a_points[row - 1] - b_points[col - 1]))
+            candidates = [
+                (costs[row - 1, col], lengths[row - 1, col]),
+                (costs[row, col - 1], lengths[row, col - 1]),
+                (costs[row - 1, col - 1], lengths[row - 1, col - 1]),
+            ]
+            previous_cost, previous_length = min(candidates, key=lambda item: (item[0], item[1]))
+            costs[row, col] = previous_cost + step_distance
+            lengths[row, col] = previous_length + 1
+
+    path_length = int(lengths[rows, cols])
+    return float(costs[rows, cols] / path_length) if path_length else 0.0

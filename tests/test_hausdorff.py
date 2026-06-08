@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from src.processing.hausdorff import frechet_discrete, hausdorff_modified, hausdorff_standard
+from src.processing.hausdorff import dtw_distance, frechet_discrete, hausdorff_modified, hausdorff_standard
 
 
 def test_hausdorff_identical_sets():
@@ -10,6 +10,7 @@ def test_hausdorff_identical_sets():
     assert hausdorff_standard(points, points.copy()) == pytest.approx(0.0, abs=1e-10)
     assert hausdorff_modified(points, points.copy()) == pytest.approx(0.0, abs=1e-10)
     assert frechet_discrete(points, points.copy()) == pytest.approx(0.0, abs=1e-10)
+    assert dtw_distance(points, points.copy()) == pytest.approx(0.0, abs=1e-10)
 
 
 def test_hausdorff_different_sets_positive():
@@ -66,3 +67,22 @@ def test_frechet_respects_curve_order():
 def test_frechet_rejects_empty_sets():
     with pytest.raises(ValueError):
         frechet_discrete(np.empty((0, 3)), np.array([[0.0, 0.0, 0.0]]))
+
+
+def test_dtw_allows_tempo_warping():
+    left = np.array([[0.0, 0.0], [0.5, 0.5], [1.0, 1.0]])
+    right = np.array([[0.0, 0.0], [1.0, 1.0]])
+
+    assert dtw_distance(left, right) < frechet_discrete(left, right)
+
+
+def test_dtw_symmetry():
+    left = np.array([[0.0, 0.2], [0.5, 0.6], [1.0, 0.8]])
+    right = np.array([[0.0, 0.1], [1.0, 0.7]])
+
+    assert dtw_distance(left, right) == pytest.approx(dtw_distance(right, left))
+
+
+def test_dtw_rejects_empty_sets():
+    with pytest.raises(ValueError):
+        dtw_distance(np.empty((0, 3)), np.array([[0.0, 0.0, 0.0]]))

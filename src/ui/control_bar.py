@@ -6,6 +6,7 @@ METHOD_LABELS = {
     "标准 Hausdorff": "standard",
     "Modified Hausdorff": "modified",
     "离散 Fréchet": "frechet",
+    "DTW": "dtw",
 }
 
 

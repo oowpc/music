@@ -57,6 +57,19 @@ def test_build_matrix_frechet_method():
     np.testing.assert_allclose(matrix, matrix.T, atol=1e-10)
 
 
+def test_build_matrix_dtw_method():
+    c1 = make_curve("a", [(0.0, 60, 80), (1.0, 64, 100), (2.0, 67, 90)])
+    c2 = make_curve("b", [(0.0, 60, 80), (0.5, 64, 100), (2.0, 69, 90)])
+    curves = [c1, c2]
+    normalize_minmax(curves)
+
+    matrix = build_matrix(curves, method="dtw")
+
+    assert matrix.shape == (2, 2)
+    assert matrix[0, 1] > 0.0
+    np.testing.assert_allclose(matrix, matrix.T, atol=1e-10)
+
+
 def test_build_matrix_single_curve():
     curve = make_curve("solo", [(0.0, 60, 80)])
     normalize_minmax([curve])

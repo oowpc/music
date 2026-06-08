@@ -1,13 +1,19 @@
 import numpy as np
 
 from src.models.melody_curve import MelodyCurve
-from src.processing.hausdorff import frechet_discrete, hausdorff_modified, hausdorff_standard
+from src.processing.hausdorff import (
+    dtw_distance,
+    frechet_discrete,
+    hausdorff_modified,
+    hausdorff_standard,
+)
 
 
 DISTANCE_FUNCTIONS = {
     "standard": hausdorff_standard,
     "modified": hausdorff_modified,
     "frechet": frechet_discrete,
+    "dtw": dtw_distance,
 }
 
 
