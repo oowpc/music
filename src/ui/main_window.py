@@ -26,6 +26,7 @@ class MainWindow(QMainWindow):
         self._cluster_result = None
         self._matrix_method = None
         self._matrix_norm = None
+        self._matrix_weights = None
         self._known_curve_count = 0
 
         central = QWidget()
@@ -67,7 +68,9 @@ class MainWindow(QMainWindow):
         self.file_panel.visibility_changed.connect(self._on_visibility_changed)
         self.file_panel.label_changed.connect(self._on_label_changed)
         self.control_bar.normalization_changed.connect(self._on_normalization_changed)
+        self.control_bar.weights_changed.connect(self._on_weights_changed)
         self.control_bar.compute_requested.connect(self._on_compute)
+        self.control_bar.segment_requested.connect(self._on_find_best_segment)
         self.control_bar.export_requested.connect(self._on_export)
 
     def _on_files_loaded(self) -> None:
@@ -119,12 +122,26 @@ class MainWindow(QMainWindow):
         self._invalidate_matrix()
         self.control_bar.set_status(f"已切换归一化: {normalization}，请重新计算距离矩阵")
 
+    def _on_weights_changed(self) -> None:
+        """Apply dimension weights and invalidate stale matrix results."""
+        if not self._curves:
+            return
+        self._run_normalization()
+        self._on_visibility_changed()
+        self._invalidate_matrix()
+        weights = self.control_bar.get_dimension_weights()
+        self.control_bar.set_status(
+            f"已更新权重 时间/音高/力度 = {weights[0]:.2f}/{weights[1]:.2f}/{weights[2]:.2f}"
+        )
+
     def _run_normalization(self) -> None:
         """Normalize current curves according to the control bar selection."""
         from src.processing.normalization import normalize_minmax, normalize_zscore
+        from src.processing.weights import apply_dimension_weights
 
         normalize = normalize_minmax if self.control_bar.get_norm() == "minmax" else normalize_zscore
         normalize(self._curves)
+        apply_dimension_weights(self._curves, self.control_bar.get_dimension_weights())
 
     def _on_compute(self) -> None:
         """Compute distance matrix and clustering for loaded curves."""
@@ -142,6 +159,7 @@ class MainWindow(QMainWindow):
         self._matrix = build_matrix(self._curves, method=method)
         self._matrix_method = method
         self._matrix_norm = self.control_bar.get_norm()
+        self._matrix_weights = self.control_bar.get_dimension_weights()
         names = [curve.name for curve in self._curves]
         self.matrix_panel.set_matrix(self._matrix, names)
 
@@ -158,6 +176,7 @@ class MainWindow(QMainWindow):
             and self._matrix.shape == (previous_count, previous_count)
             and self._matrix_method == self.control_bar.get_method()
             and self._matrix_norm == self.control_bar.get_norm()
+            and self._matrix_weights == self.control_bar.get_dimension_weights()
             and previous_count >= 1
         )
 
@@ -175,6 +194,7 @@ class MainWindow(QMainWindow):
         )
         self._matrix_method = method
         self._matrix_norm = self.control_bar.get_norm()
+        self._matrix_weights = self.control_bar.get_dimension_weights()
 
         names = [curve.name for curve in self._curves]
         self.matrix_panel.set_matrix(self._matrix, names)
@@ -187,6 +207,38 @@ class MainWindow(QMainWindow):
         self._cluster_result = None
         self._matrix_method = None
         self._matrix_norm = None
+        self._matrix_weights = None
+
+    def _on_find_best_segment(self) -> None:
+        """Find and report the most similar segment between two visible curves."""
+        from src.analysis.segment_analysis import find_best_segment_match
+
+        visible_indices = self.file_panel.get_visible_indices()
+        if len(visible_indices) < 2:
+            self.control_bar.set_status("至少需要勾选 2 条曲线才能比较片段")
+            return
+
+        self._run_normalization()
+        left = self._curves[visible_indices[0]]
+        right = self._curves[visible_indices[1]]
+        window_size, step_size = self.control_bar.get_segment_params()
+        match = find_best_segment_match(
+            left,
+            right,
+            method=self.control_bar.get_method(),
+            window_size=window_size,
+            step_size=step_size,
+            min_points=2,
+        )
+        if match is None:
+            self.control_bar.set_status("未找到可比较的片段")
+            return
+
+        self.control_bar.set_status(
+            f"最相似片段: {left.name} [{match.left_start:.2f}-{match.left_end:.2f}] "
+            f"vs {right.name} [{match.right_start:.2f}-{match.right_end:.2f}], "
+            f"距离 {match.distance:.4f}"
+        )
 
     def _on_export(self) -> None:
         """Export the current distance matrix to CSV with row and column labels."""
