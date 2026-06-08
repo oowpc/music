@@ -1,0 +1,5 @@
+genre,file,notes,duration,pitch_min,pitch_max,mean_intra_distance,exclude_reason
+classical,braska.mid,187,132.000,50,88,0.286836,intra_distance_outlier(0.2868>0.1939)
+classical,dontbeafraid.mid,462,168.957,41,86,0.257726,intra_distance_outlier(0.2577>0.1939)
+jazz,BlackPage.mid,1306,173.143,36,92,0.340334,intra_distance_outlier(0.3403>0.1866)
+rock,dontlookbackinanger.mid,32,7.750,35,45,0.242493,too_few_notes(32);too_short(7.8s);intra_distance_outlier(0.2425>0.2024)
