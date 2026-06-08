@@ -1,0 +1,81 @@
+import numpy as np
+from scipy.spatial import KDTree
+from scipy.spatial.distance import directed_hausdorff
+
+
+def _validate_points(points: np.ndarray, name: str) -> np.ndarray:
+    """Return a float point array with shape (N, D), rejecting empty sets."""
+    array = np.asarray(points, dtype=np.float64)
+    if array.ndim != 2:
+        raise ValueError(f"{name} must be a 2D point array")
+    if array.shape[0] == 0:
+        raise ValueError(f"{name} must contain at least one point")
+    return array
+
+
+def hausdorff_standard(a_points: np.ndarray, b_points: np.ndarray) -> float:
+    """Return standard Hausdorff distance between two point arrays.
+
+    Both inputs must have shape (N, D) and (M, D). The return value is the
+    symmetric Hausdorff distance as a float.
+    """
+    a_points = _validate_points(a_points, "a_points")
+    b_points = _validate_points(b_points, "b_points")
+    return float(
+        max(
+            directed_hausdorff(a_points, b_points)[0],
+            directed_hausdorff(b_points, a_points)[0],
+        )
+    )
+
+
+def hausdorff_modified(a_points: np.ndarray, b_points: np.ndarray) -> float:
+    """Return modified Hausdorff distance using mean nearest-neighbor distance.
+
+    Both inputs must have shape (N, D) and (M, D). The return value is the
+    symmetric modified Hausdorff distance as a float.
+    """
+    a_points = _validate_points(a_points, "a_points")
+    b_points = _validate_points(b_points, "b_points")
+
+    b_tree = KDTree(b_points)
+    distances_ab, _ = b_tree.query(a_points)
+
+    a_tree = KDTree(a_points)
+    distances_ba, _ = a_tree.query(b_points)
+
+    return float(max(np.mean(distances_ab), np.mean(distances_ba)))
+
+
+def frechet_discrete(a_points: np.ndarray, b_points: np.ndarray) -> float:
+    """Return discrete Frechet distance between two ordered point arrays.
+
+    Both inputs must have shape (N, D) and (M, D). Unlike Hausdorff distance,
+    this metric respects point order along the two curves.
+    """
+    a_points = _validate_points(a_points, "a_points")
+    b_points = _validate_points(b_points, "b_points")
+
+    rows, cols = len(a_points), len(b_points)
+    costs = np.empty((rows, cols), dtype=np.float64)
+
+    for row in range(rows):
+        for col in range(cols):
+            distance = float(np.linalg.norm(a_points[row] - b_points[col]))
+            if row == 0 and col == 0:
+                costs[row, col] = distance
+            elif row == 0:
+                costs[row, col] = max(costs[row, col - 1], distance)
+            elif col == 0:
+                costs[row, col] = max(costs[row - 1, col], distance)
+            else:
+                costs[row, col] = max(
+                    min(
+                        costs[row - 1, col],
+                        costs[row - 1, col - 1],
+                        costs[row, col - 1],
+                    ),
+                    distance,
+                )
+
+    return float(costs[-1, -1])
