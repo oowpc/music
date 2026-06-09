@@ -1,0 +1,6 @@
+true\pred,classical,folk,jazz,pop,rock
+classical,22,0,3,0,0
+folk,0,23,0,0,0
+jazz,6,0,15,0,0
+pop,0,0,0,25,0
+rock,2,1,0,12,7

@@ -28,6 +28,7 @@ class MainWindow(QMainWindow):
         self._matrix_norm = None
         self._matrix_weights = None
         self._known_curve_count = 0
+        self._standard_references = None
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -67,10 +68,13 @@ class MainWindow(QMainWindow):
         self.file_panel.files_loaded.connect(self._on_files_loaded)
         self.file_panel.visibility_changed.connect(self._on_visibility_changed)
         self.file_panel.label_changed.connect(self._on_label_changed)
+        self.control_bar.method_changed.connect(self._on_method_changed)
         self.control_bar.normalization_changed.connect(self._on_normalization_changed)
         self.control_bar.weights_changed.connect(self._on_weights_changed)
         self.control_bar.compute_requested.connect(self._on_compute)
         self.control_bar.segment_requested.connect(self._on_find_best_segment)
+        self.control_bar.classify_requested.connect(self._on_classify_query)
+        self.control_bar.similarity_requested.connect(self._on_detect_similarity)
         self.control_bar.export_requested.connect(self._on_export)
 
     def _on_files_loaded(self) -> None:
@@ -112,6 +116,16 @@ class MainWindow(QMainWindow):
         if self._matrix is not None and self._cluster_result is not None:
             names = [curve.name for curve in self._curves]
             self.cluster_panel.set_result(self._matrix, names, self._cluster_result, self._curves)
+
+    def _on_method_changed(self, method: str) -> None:
+        """Refresh computed analysis when the distance method changes."""
+        if not self._curves:
+            return
+        if self._matrix is None:
+            self._invalidate_matrix()
+            self.control_bar.set_status(f"已切换距离算法: {method}，请计算距离矩阵")
+            return
+        self._on_compute()
 
     def _on_normalization_changed(self, normalization: str) -> None:
         """Re-normalize loaded curves and refresh the 3D view."""
@@ -238,6 +252,88 @@ class MainWindow(QMainWindow):
             f"最相似片段: {left.name} [{match.left_start:.2f}-{match.left_end:.2f}] "
             f"vs {right.name} [{match.right_start:.2f}-{match.right_end:.2f}], "
             f"距离 {match.distance:.4f}"
+        )
+
+    def _on_classify_query(self) -> None:
+        """Classify one external MIDI file against the v1.1 standard set."""
+        from src.analysis.reference_classifier import (
+            classify_query_curve,
+            load_or_build_standard_set,
+            load_query_curve,
+        )
+
+        filepath, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择要识别曲风的 MIDI 文件",
+            "",
+            "MIDI Files (*.mid *.midi);;All Files (*)",
+        )
+        if not filepath:
+            return
+
+        self.control_bar.set_status("正在加载标准集并识别曲风...")
+        if self._standard_references is None:
+            self._standard_references = load_or_build_standard_set()
+
+        query_curve = load_query_curve(filepath)
+        if query_curve is None:
+            self.control_bar.set_status("无法解析该 MIDI 文件")
+            return
+
+        k = self.cluster_panel.knn_k_spin.value() if hasattr(self.cluster_panel, "knn_k_spin") else 5
+        result = classify_query_curve(
+            query_curve,
+            self._standard_references,
+            method=self.control_bar.get_method(),
+            k=k,
+            weights=self.control_bar.get_dimension_weights(),
+        )
+        self.cluster_panel.set_query_classification(result)
+        neighbor_text = ", ".join(
+            f"{neighbor.name}[{neighbor.label}:{neighbor.distance:.4f}]"
+            for neighbor in result.neighbors[:3]
+        )
+        self.control_bar.set_status(
+            f"预测曲风: {result.predicted_label}  |  最近邻: {neighbor_text}"
+        )
+
+    def _on_detect_similarity(self) -> None:
+        """Compare two external MIDI files for melody similarity."""
+        from src.analysis.melody_similarity import compare_midi_files
+
+        left_filepath, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择第一首 MIDI",
+            "",
+            "MIDI Files (*.mid *.midi);;All Files (*)",
+        )
+        if not left_filepath:
+            return
+
+        right_filepath, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择第二首 MIDI",
+            "",
+            "MIDI Files (*.mid *.midi);;All Files (*)",
+        )
+        if not right_filepath:
+            return
+
+        self.control_bar.set_status("正在检测旋律相似度...")
+        result = compare_midi_files(
+            left_filepath,
+            right_filepath,
+            window_size=self.control_bar.get_segment_params()[0],
+            step_size=self.control_bar.get_segment_params()[1],
+        )
+        if result is None:
+            self.control_bar.set_status("无法解析选择的 MIDI 文件")
+            return
+
+        self.cluster_panel.set_melody_similarity(result)
+        self.control_bar.set_status(
+            f"旋律检测: {result.level}，相似度 {result.score:.1f}，"
+            f"Modified {result.modified_distance:.4f}, DTW {result.dtw_distance:.4f}"
         )
 
     def _on_export(self) -> None:

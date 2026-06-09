@@ -1,0 +1,5 @@
+method,within_avg,between_avg,separation_ratio,knn_accuracy,macro_f1,sample_count,genre_count
+标准 Hausdorff,0.274173,0.422655,1.541563,0.720000,0.705617,50,5
+Modified Hausdorff,0.094716,0.211536,2.233373,0.820000,0.782281,50,5
+离散 Fréchet,0.359256,0.473430,1.317808,0.580000,0.556361,50,5
+DTW,0.130392,0.252133,1.933662,0.720000,0.690476,50,5

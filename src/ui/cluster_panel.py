@@ -121,6 +121,42 @@ class ClusterPanel(QWidget):
         self.method_comparison_table = self._create_table()
         self._add_tab("方法对比", self.method_comparison_table)
 
+        classification_widget = QWidget()
+        classification_layout = QVBoxLayout(classification_widget)
+        classification_layout.setContentsMargins(4, 4, 4, 4)
+
+        self.query_summary_label = QLabel("（点击底部“识别曲风”选择 MIDI）")
+        self.query_summary_label.setWordWrap(True)
+        self.query_summary_label.setStyleSheet("font-weight: bold;")
+        classification_layout.addWidget(self.query_summary_label)
+
+        classification_layout.addWidget(QLabel("Top 最近邻"))
+        self.query_neighbors_table = self._create_table()
+        classification_layout.addWidget(self.query_neighbors_table)
+
+        classification_layout.addWidget(QLabel("曲风投票"))
+        self.query_votes_table = self._create_table()
+        classification_layout.addWidget(self.query_votes_table)
+        self._add_tab("单曲识别", classification_widget)
+
+        similarity_widget = QWidget()
+        similarity_layout = QVBoxLayout(similarity_widget)
+        similarity_layout.setContentsMargins(4, 4, 4, 4)
+
+        self.similarity_summary_label = QLabel("（点击底部“旋律检测”选择两首 MIDI）")
+        self.similarity_summary_label.setWordWrap(True)
+        self.similarity_summary_label.setStyleSheet("font-weight: bold;")
+        similarity_layout.addWidget(self.similarity_summary_label)
+
+        similarity_layout.addWidget(QLabel("全曲指标"))
+        self.similarity_metrics_table = self._create_table()
+        similarity_layout.addWidget(self.similarity_metrics_table)
+
+        similarity_layout.addWidget(QLabel("最相似片段"))
+        self.similarity_segment_table = self._create_table()
+        similarity_layout.addWidget(self.similarity_segment_table)
+        self._add_tab("旋律检测", similarity_widget)
+
     def _create_table(self) -> QTableWidget:
         """Create a read-only table with compact default behavior."""
         table = QTableWidget()
@@ -428,6 +464,122 @@ class ClusterPanel(QWidget):
                     item.setBackground(QColor("#d9ead3"))
                 self.method_comparison_table.setItem(row, col, item)
         self.method_comparison_table.resizeColumnsToContents()
+
+    def set_query_classification(self, result) -> None:
+        """Render one external MIDI classification result."""
+        self.query_summary_label.setText(
+            f"曲目: {result.query_name}  |  预测曲风: {result.predicted_label}  |  "
+            f"置信度: {result.confidence:.2%}"
+        )
+        self._fill_query_neighbors_table(result)
+        self._fill_query_votes_table(result)
+        for index in range(self.tabs.count()):
+            if self.tabs.tabText(index) == "单曲识别":
+                self.tabs.setCurrentIndex(index)
+                break
+
+    def _fill_query_neighbors_table(self, result) -> None:
+        """Render nearest standard-set neighbors for an external query."""
+        headers = ["排名", "曲目", "曲风", "距离"]
+        self.query_neighbors_table.setRowCount(len(result.neighbors))
+        self.query_neighbors_table.setColumnCount(len(headers))
+        self.query_neighbors_table.setHorizontalHeaderLabels(headers)
+        self.query_neighbors_table.setVerticalHeaderLabels([str(index + 1) for index in range(len(result.neighbors))])
+
+        for row, neighbor in enumerate(result.neighbors):
+            values = [str(row + 1), neighbor.name, neighbor.label, f"{neighbor.distance:.4f}"]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if neighbor.label == result.predicted_label:
+                    item.setBackground(QColor("#d9ead3"))
+                self.query_neighbors_table.setItem(row, col, item)
+        self.query_neighbors_table.resizeColumnsToContents()
+
+    def _fill_query_votes_table(self, result) -> None:
+        """Render vote counts and mean distances by genre."""
+        labels = sorted(
+            result.vote_counts,
+            key=lambda label: (-result.vote_counts[label], result.mean_distances[label], label),
+        )
+        headers = ["曲风", "票数", "平均距离"]
+        self.query_votes_table.setRowCount(len(labels))
+        self.query_votes_table.setColumnCount(len(headers))
+        self.query_votes_table.setHorizontalHeaderLabels(headers)
+        self.query_votes_table.setVerticalHeaderLabels([str(index + 1) for index in range(len(labels))])
+
+        for row, label in enumerate(labels):
+            values = [
+                label,
+                str(result.vote_counts[label]),
+                f"{result.mean_distances[label]:.4f}",
+            ]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if label == result.predicted_label:
+                    item.setBackground(QColor("#d9ead3"))
+                self.query_votes_table.setItem(row, col, item)
+        self.query_votes_table.resizeColumnsToContents()
+
+    def set_melody_similarity(self, result) -> None:
+        """Render two-song melody similarity detection results."""
+        self.similarity_summary_label.setText(
+            f"{result.left_name} vs {result.right_name}  |  "
+            f"判定: {result.level}  |  相似度: {result.score:.1f}"
+        )
+        self._fill_similarity_metrics_table(result)
+        self._fill_similarity_segment_table(result)
+        for index in range(self.tabs.count()):
+            if self.tabs.tabText(index) == "旋律检测":
+                self.tabs.setCurrentIndex(index)
+                break
+
+    def _fill_similarity_metrics_table(self, result) -> None:
+        """Render full-song distance metrics for melody detection."""
+        rows = [
+            ("Modified Hausdorff", f"{result.modified_distance:.4f}"),
+            ("DTW", f"{result.dtw_distance:.4f}"),
+            ("判定等级", result.level),
+            ("相似度", f"{result.score:.1f}"),
+        ]
+        self.similarity_metrics_table.setRowCount(len(rows))
+        self.similarity_metrics_table.setColumnCount(2)
+        self.similarity_metrics_table.setHorizontalHeaderLabels(["指标", "值"])
+        self.similarity_metrics_table.setVerticalHeaderLabels([str(index + 1) for index in range(len(rows))])
+        for row, (name, value) in enumerate(rows):
+            for col, text in enumerate([name, value]):
+                item = QTableWidgetItem(text)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if name == "判定等级" and result.level != "不相似":
+                    item.setBackground(QColor("#d9ead3"))
+                self.similarity_metrics_table.setItem(row, col, item)
+        self.similarity_metrics_table.resizeColumnsToContents()
+
+    def _fill_similarity_segment_table(self, result) -> None:
+        """Render best matching segment evidence."""
+        headers = ["左曲片段", "右曲片段", "片段距离", "左点数", "右点数"]
+        self.similarity_segment_table.setRowCount(1)
+        self.similarity_segment_table.setColumnCount(len(headers))
+        self.similarity_segment_table.setHorizontalHeaderLabels(headers)
+        self.similarity_segment_table.setVerticalHeaderLabels(["1"])
+
+        if result.best_segment is None:
+            values = ["-", "-", "-", "-", "-"]
+        else:
+            match = result.best_segment
+            values = [
+                f"{match.left_start:.2f}-{match.left_end:.2f}",
+                f"{match.right_start:.2f}-{match.right_end:.2f}",
+                f"{match.distance:.4f}",
+                str(match.left_points),
+                str(match.right_points),
+            ]
+        for col, value in enumerate(values):
+            item = QTableWidgetItem(value)
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.similarity_segment_table.setItem(0, col, item)
+        self.similarity_segment_table.resizeColumnsToContents()
 
 def _colors_for_curves(curves, cluster_result) -> list[str]:
     """Return one display color per curve using labels first, clusters second."""

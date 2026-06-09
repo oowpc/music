@@ -18,6 +18,8 @@ class ControlBar(QWidget):
     weights_changed = Signal()
     compute_requested = Signal()
     segment_requested = Signal()
+    classify_requested = Signal()
+    similarity_requested = Signal()
     export_requested = Signal()
 
     def __init__(self, parent=None):
@@ -88,6 +90,14 @@ class ControlBar(QWidget):
         self.segment_btn = QPushButton("最相似片段")
         self.segment_btn.clicked.connect(self.segment_requested.emit)
         layout.addWidget(self.segment_btn)
+
+        self.classify_btn = QPushButton("识别曲风")
+        self.classify_btn.clicked.connect(self.classify_requested.emit)
+        layout.addWidget(self.classify_btn)
+
+        self.similarity_btn = QPushButton("旋律检测")
+        self.similarity_btn.clicked.connect(self.similarity_requested.emit)
+        layout.addWidget(self.similarity_btn)
 
         self.export_btn = QPushButton("导出 CSV")
         self.export_btn.clicked.connect(self.export_requested.emit)
