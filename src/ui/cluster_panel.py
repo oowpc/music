@@ -21,12 +21,14 @@ try:
     matplotlib.use("QtAgg")
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
     from matplotlib.figure import Figure
+    from scipy.cluster.hierarchy import dendrogram
 
     HAS_MATPLOTLIB = True
 except Exception:
     HAS_MATPLOTLIB = False
     Figure = None
     FigureCanvas = None
+    dendrogram = None
 
 
 class ClusterPanel(QWidget):
@@ -61,6 +63,10 @@ class ClusterPanel(QWidget):
         self._mds_canvas = FigureCanvas(self._mds_figure)
         self._add_tab("MDS 可视化", self._mds_canvas)
 
+        self._dendrogram_figure = Figure(figsize=(4, 3), dpi=100)
+        self._dendrogram_canvas = FigureCanvas(self._dendrogram_figure)
+        self._add_tab("树状图", self._dendrogram_canvas)
+
         self._build_analysis_tabs()
 
     def _build_fallback_tabs(self) -> None:
@@ -74,6 +80,9 @@ class ClusterPanel(QWidget):
         """Create the genre matrix, KNN, and confusion-matrix tabs."""
         self.genre_table = self._create_table()
         self._add_tab("曲风距离矩阵", self.genre_table)
+
+        self.evaluation_table = self._create_table()
+        self._add_tab("定量评价", self.evaluation_table)
 
         knn_widget = QWidget()
         knn_layout = QVBoxLayout(knn_widget)
@@ -187,6 +196,7 @@ class ClusterPanel(QWidget):
         self._curves = curves
         if HAS_MATPLOTLIB:
             self._draw_mds(matrix, names, cluster_result, curves)
+            self._draw_dendrogram(cluster_result, names)
         self._refresh_analysis_tables()
 
     def _draw_mds(self, matrix, names, cluster_result, curves) -> None:
@@ -233,11 +243,27 @@ class ClusterPanel(QWidget):
         self._mds_figure.tight_layout()
         self._mds_canvas.draw()
 
+    def _draw_dendrogram(self, cluster_result, names) -> None:
+        """Draw hierarchical clustering dendrogram for the current matrix."""
+        self._dendrogram_figure.clear()
+        axis = self._dendrogram_figure.add_subplot(111)
+
+        linkage_matrix = cluster_result.get("linkage")
+        if linkage_matrix is not None and len(names) >= 2:
+            dendrogram(linkage_matrix, labels=names, ax=axis, leaf_rotation=45, leaf_font_size=7)
+            axis.set_title("层次聚类树状图")
+        else:
+            axis.text(0.5, 0.5, "数据不足", ha="center", va="center", transform=axis.transAxes)
+
+        self._dendrogram_figure.tight_layout()
+        self._dendrogram_canvas.draw()
+
     def _refresh_analysis_tables(self) -> None:
         """Refresh all label-based analysis tables from the cached result."""
         if self._matrix is None:
             return
         self._draw_genre_distance_table()
+        self._draw_evaluation_table()
         self._draw_knn_tables()
         self._draw_structure_table()
         self._draw_method_comparison_table()
@@ -276,6 +302,35 @@ class ClusterPanel(QWidget):
                     self._set_distance_background(item, float(value), max_distance)
                 self.genre_table.setItem(row, col, item)
         self.genre_table.resizeColumnsToContents()
+
+    def _draw_evaluation_table(self) -> None:
+        """Render quantitative clustering and genre-separation metrics."""
+        from src.analysis.evaluation import evaluate, evaluate_distance_matrix
+        from src.analysis.genre_analysis import genre_distance_matrix
+
+        cluster_metrics = evaluate(self._curves, self._cluster_result.get("labels", []))
+        distance_metrics = evaluate_distance_matrix(self._curves, self._matrix)
+        genre_result = genre_distance_matrix(self._matrix, self._curves)
+        within_avg, between_avg, separation_ratio = _genre_separation_values(genre_result.matrix if genre_result else None)
+
+        rows = [
+            ("ARI", _format_optional_float(cluster_metrics.get("ari") if cluster_metrics else None)),
+            ("纯度", _format_optional_float(cluster_metrics.get("purity") if cluster_metrics else None)),
+            ("轮廓系数", _format_optional_float(distance_metrics.get("silhouette") if distance_metrics else None)),
+            ("类内平均距离", _format_optional_float(within_avg)),
+            ("类间平均距离", _format_optional_float(between_avg)),
+            ("类间/类内比值", _format_optional_float(separation_ratio)),
+        ]
+        self.evaluation_table.setRowCount(len(rows))
+        self.evaluation_table.setColumnCount(2)
+        self.evaluation_table.setHorizontalHeaderLabels(["指标", "值"])
+        self.evaluation_table.setVerticalHeaderLabels([str(index + 1) for index in range(len(rows))])
+        for row, (metric, value) in enumerate(rows):
+            for col, text in enumerate([metric, value]):
+                item = QTableWidgetItem(text)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.evaluation_table.setItem(row, col, item)
+        self.evaluation_table.resizeColumnsToContents()
 
     def _draw_knn_tables(self) -> None:
         """Render KNN prediction and confusion-matrix outputs."""
@@ -606,3 +661,25 @@ def _colors_for_curves(curves, cluster_result) -> list[str]:
 def _format_optional_float(value: float | None) -> str:
     """Format optional metric values for compact tables."""
     return "-" if value is None else f"{value:.4f}"
+
+
+def _genre_separation_values(matrix) -> tuple[float | None, float | None, float | None]:
+    """Return diagonal mean, off-diagonal mean, and between/within ratio."""
+    if matrix is None:
+        return None, None, None
+    values = np.asarray(matrix, dtype=np.float64)
+    if values.size == 0:
+        return None, None, None
+
+    within = [float(values[index, index]) for index in range(values.shape[0]) if np.isfinite(values[index, index])]
+    between = [
+        float(values[row, col])
+        for row in range(values.shape[0])
+        for col in range(row + 1, values.shape[1])
+        if np.isfinite(values[row, col])
+    ]
+    within_avg = float(np.mean(within)) if within else None
+    between_avg = float(np.mean(between)) if between else None
+    if within_avg is None or between_avg is None or within_avg <= 0:
+        return within_avg, between_avg, None
+    return within_avg, between_avg, between_avg / within_avg

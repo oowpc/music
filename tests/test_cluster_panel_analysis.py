@@ -51,7 +51,9 @@ def test_cluster_panel_shows_requested_analysis_tabs():
     titles = [panel.tabs.tabText(index) for index in range(panel.tabs.count())]
 
     assert "MDS 可视化" in titles
+    assert "树状图" in titles
     assert "曲风距离矩阵" in titles
+    assert "定量评价" in titles
     assert "KNN 分类" in titles
     assert "混淆矩阵" in titles
     assert "结构分析" in titles
@@ -84,6 +86,9 @@ def test_cluster_panel_renders_genre_knn_and_confusion_tables():
     assert panel.genre_table.rowCount() == 2
     assert panel.genre_table.columnCount() == 2
     assert panel.genre_table.item(0, 0).text() == "0.1000"
+    assert panel.evaluation_table.rowCount() == 6
+    assert panel.evaluation_table.item(2, 0).text() == "轮廓系数"
+    assert panel.evaluation_table.item(2, 1).text() == "0.8496"
     assert "Accuracy: 1.0000" in panel.knn_metrics_label.text()
     assert panel.knn_table.rowCount() == 4
     assert panel.confusion_table.item(0, 0).text() == "2"
