@@ -1,9 +1,13 @@
+import os
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QInputDialog,
     QDialog,
+    QLabel,
     QListWidget,
     QListWidgetItem,
     QMenu,
@@ -12,8 +16,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.io.audio_loader import load_audio
 from src.io.midi_loader import inspect_midi_tracks, load_midi
 from src.ui.track_selection_dialog import TrackSelectionDialog
+
+_AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a"}
 
 
 COLORS = [
@@ -53,9 +60,13 @@ class FilePanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        self.import_btn = QPushButton("+ 导入 MIDI")
+        self.import_btn = QPushButton("+ 导入 MIDI / 音频")
         self.import_btn.clicked.connect(self._import_files)
         layout.addWidget(self.import_btn)
+
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("color: #888; font-size: 11px;")
+        layout.addWidget(self.status_label)
 
         self.list_widget = QListWidget()
         self.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -66,25 +77,47 @@ class FilePanel(QWidget):
         self._curves = []
 
     def _import_files(self) -> None:
-        """Open a file dialog and append successfully parsed MIDI curves."""
+        """Open a file dialog and append successfully parsed MIDI or audio curves."""
         filepaths, _ = QFileDialog.getOpenFileNames(
             self,
-            "导入 MIDI 文件",
+            "导入 MIDI 或音频文件",
             "",
-            "MIDI Files (*.mid *.midi);;All Files (*)",
+            (
+                "所有支持格式 (*.mid *.midi *.mp3 *.wav *.flac);;"
+                "MIDI (*.mid *.midi);;"
+                "音频 (*.mp3 *.wav *.flac);;"
+                "All Files (*)"
+            ),
         )
         if not filepaths:
             return
 
         for filepath in filepaths:
-            curve = self._load_curve_with_options(filepath)
+            if self._is_audio_file(filepath):
+                curve = self._load_audio_curve(filepath)
+            else:
+                curve = self._load_curve_with_options(filepath)
             if curve is None:
                 continue
             curve.color = COLORS[len(self._curves) % len(COLORS)]
             self._curves.append(curve)
 
+        self.status_label.setText("")
         self._rebuild_list()
         self.files_loaded.emit()
+
+    @staticmethod
+    def _is_audio_file(filepath: str) -> bool:
+        """Return True when *filepath* has a recognised audio extension."""
+        return os.path.splitext(filepath)[1].lower() in _AUDIO_EXTENSIONS
+
+    def _load_audio_curve(self, filepath: str):
+        """Transcribe one audio file and return a MelodyCurve, or None on failure."""
+        name = os.path.basename(filepath)
+        self.status_label.setText(f"正在转录: {name} ...")
+        QApplication.processEvents()
+        curve = load_audio(filepath, extraction_mode="highest")
+        return curve
 
     def _load_curve_with_options(self, filepath: str):
         """Load one MIDI file after optional track/extraction selection."""

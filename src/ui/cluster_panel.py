@@ -3,9 +3,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QHeaderView,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -130,6 +132,30 @@ class ClusterPanel(QWidget):
         self.method_comparison_table = self._create_table()
         self._add_tab("方法对比", self.method_comparison_table)
 
+        retrieval_widget = QWidget()
+        retrieval_layout = QVBoxLayout(retrieval_widget)
+        retrieval_layout.setContentsMargins(4, 4, 4, 4)
+
+        retrieval_controls = QHBoxLayout()
+        retrieval_controls.addWidget(QLabel("查询曲线:"))
+        self.retrieval_combo = QComboBox()
+        self.retrieval_combo.setMinimumWidth(120)
+        retrieval_controls.addWidget(self.retrieval_combo)
+        retrieval_controls.addWidget(QLabel("K:"))
+        self.retrieval_k_spin = QSpinBox()
+        self.retrieval_k_spin.setRange(1, 20)
+        self.retrieval_k_spin.setValue(5)
+        retrieval_controls.addWidget(self.retrieval_k_spin)
+        search_button = QPushButton("检索")
+        search_button.clicked.connect(self._on_retrieval_search)
+        retrieval_controls.addWidget(search_button)
+        retrieval_controls.addStretch()
+        retrieval_layout.addLayout(retrieval_controls)
+
+        self.retrieval_table = self._create_table()
+        retrieval_layout.addWidget(self.retrieval_table)
+        self._add_tab("旋律检索", retrieval_widget)
+
         classification_widget = QWidget()
         classification_layout = QVBoxLayout(classification_widget)
         classification_layout.setContentsMargins(4, 4, 4, 4)
@@ -198,6 +224,7 @@ class ClusterPanel(QWidget):
             self._draw_mds(matrix, names, cluster_result, curves)
             self._draw_dendrogram(cluster_result, names)
         self._refresh_analysis_tables()
+        self._populate_retrieval_combo()
 
     def _draw_mds(self, matrix, names, cluster_result, curves) -> None:
         """Draw an MDS scatter plot for a distance matrix."""
@@ -519,6 +546,69 @@ class ClusterPanel(QWidget):
                     item.setBackground(QColor("#d9ead3"))
                 self.method_comparison_table.setItem(row, col, item)
         self.method_comparison_table.resizeColumnsToContents()
+
+    def _populate_retrieval_combo(self) -> None:
+        """Refresh the retrieval query combo from `self._curves`."""
+        self.retrieval_combo.clear()
+        if not self._curves:
+            return
+        for curve in self._curves:
+            self.retrieval_combo.addItem(curve.name, userData=curve)
+
+    def _on_retrieval_search(self) -> None:
+        """Execute melody retrieval for the selected query curve."""
+        if not self._curves:
+            self._show_table_message(
+                self.retrieval_table, "请先加载曲线文件"
+            )
+            return
+
+        query = self.retrieval_combo.currentData()
+        if query is None:
+            self._show_table_message(
+                self.retrieval_table, "请先加载曲线文件"
+            )
+            return
+
+        from src.analysis.retrieval import top_k_retrieve
+        from src.processing.normalization import normalize_minmax
+
+        if query.points is None:
+            normalize_minmax([query])
+
+        k = self.retrieval_k_spin.value()
+        method = "modified"
+
+        results = top_k_retrieve(query, self._curves, method=method, k=k)
+
+        headers = ["排名", "曲线名称", "标签", "距离"]
+        self.retrieval_table.setRowCount(len(results))
+        self.retrieval_table.setColumnCount(len(headers))
+        self.retrieval_table.setHorizontalHeaderLabels(headers)
+        self.retrieval_table.setVerticalHeaderLabels(
+            [str(index + 1) for index in range(len(results))]
+        )
+
+        query_label = query.label
+        for row, entry in enumerate(results):
+            values = [
+                str(row + 1),
+                entry["name"],
+                entry["label"] or "-",
+                f"{entry['distance']:.4f}",
+            ]
+            match = query_label is not None and entry["label"] == query_label
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if row == 0 and entry["distance"] == 0.0:
+                    item.setBackground(QColor("#d9ead3"))
+                elif match:
+                    item.setBackground(QColor("#d9ead3"))
+                elif query_label is not None and entry["label"] is not None:
+                    item.setBackground(QColor("#f4cccc"))
+                self.retrieval_table.setItem(row, col, item)
+        self.retrieval_table.resizeColumnsToContents()
 
     def set_query_classification(self, result) -> None:
         """Render one external MIDI classification result."""
