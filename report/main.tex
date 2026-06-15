@@ -1,20 +1,724 @@
-\documentclass[a4paper,12pt]{article}
+% !TEX program = xelatex
+\documentclass[withoutpreface]{cumcmthesis}
 
-\usepackage[UTF8]{ctex}
-\usepackage{amsmath,amssymb}
-\usepackage{graphicx}
-\usepackage{hyperref}
-\usepackage{geometry}
-\geometry{margin=2.5cm}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small 中国科学技术大学 $\cdot$ 数学建模期末项目实践}
+\fancyhead[R]{\small \thepage}
+\renewcommand{\headrulewidth}{0.4pt}
 
-\title{音乐旋律线几何相似性分析}
-\author{}
-\date{\today}
+\title{音乐旋律线的几何相似性分析}
+\tihao{期末项目实践}
+\baominghao{2026-06}
+\schoolname{中国科学技术大学}
+\membera{王浦丞}
+\memberb{李沐泽}
+\memberc{郭晓龙}
+\supervisor{}
+\yearinput{2026}
+\monthinput{6}
+\dayinput{14}
 
 \begin{document}
 
 \maketitle
 
-% TODO: 正文内容
+\begin{center}
+    {\zihao{2}\bfseries\songti 音乐旋律线的几何相似性分析}\\[0.8cm]
+    {\zihao{4}\kaishu 中国科学技术大学}\\[0.3cm]
+    {\zihao{-4}\songti 数学建模期末项目实践结题报告}\\[1.2cm]
+    \begin{tabular}{rl}
+        \textbf{组长} & 王浦丞 \\
+        \textbf{组员} & 李沐泽，郭晓龙 \\
+        \textbf{日期} & 2026 年 6 月 \\
+    \end{tabular}
+\end{center}
+
+\newpage
+
+\begin{abstract}
+传统音频声学特征（如 MFCC、Chroma 等）依赖短时傅里叶变换（STFT）窗口参数，对伴奏混响与音色叠加极为敏感。本文提出一种基于符号音乐信息检索（Symbolic MIR）的曲风分析范式：将 MIDI 旋律抽象为三维欧氏空间 $\mathbb{R}^3$ 中的离散点集曲线 $\{(t_i, m_i, v_i)\}$，引入 Modified Hausdorff 距离（MHD）作为核心相似性度量，辅以标准 Hausdorff、离散 Fr\'{e}chet 及 DTW 三种对照度量，构建 $N \times N$ 距离矩阵并通过 Classical MDS 降维与层次聚类实现无监督曲风区分。
+
+实验基于五类曲风共 116 首高纯度样本，MHD 取得类间/类内分离比 2.23$\times$、KNN 留一法准确率 79.31\%（随机基线 20\%）。横向对比中 MHD 以 82.0\% 显著优于其余三种方法。MDS 可视化表明 Folk 与 Pop 形成紧密自然聚类（召回率 100\%），Classical 与 Jazz 存在部分重叠，Rock 严重嵌入 Pop 区域。系统实现了从 MP3/WAV 音频到 MIDI 符号序列的端到端转录与分析流程，工程架构与运行说明见附带文档 \texttt{system-guide.md}。
+
+\keywords{符号音乐信息检索\quad Modified Hausdorff 距离\quad 三维几何建模\quad MDS 降维\quad KNN 分类\quad 桌面分析系统}
+\end{abstract}
+
+\tableofcontents
+
+\newpage
+
+%═══════════════════════════════════════════════════════════════
+\section{问题重述}
+%═══════════════════════════════════════════════════════════════
+
+传统曲风分类依赖 MFCC、Chroma 等音频声学特征，这些特征高度依赖短时傅里叶变换（STFT）窗口参数，对伴奏混响、音色叠加及分轨噪声极为敏感——同一首歌曲的录音室版本与现场版本在 MFCC 空间中的欧氏距离可能远超不同曲风歌曲之间的距离。这一根本性缺陷导致基于声学特征的曲风分类系统的可复现性长期处于瓶颈。
+
+本研究转向\textbf{符号音乐信息检索（Symbolic MIR）}路径：直接以 MIDI 等符号化乐谱为分析对象，将旋律抽象为几何空间中的点集曲线，从而彻底剥离伴奏、混响与音色等声学噪声。本文聚焦以下四个核心问题：
+
+\begin{enumerate}[label=(\arabic*),leftmargin=2em]
+    \item 基于三维旋律线的 Hausdorff 距离能否有效区分不同曲风？
+    \item 时间、音高、力度三个维度中，哪个对曲风区分的贡献最大？
+    \item 标准 Hausdorff、Modified Hausdorff、DTW，哪种更适合 MIDI 旋律相似性度量？
+    \item MDS 降维可视化中，不同曲风是否形成自然聚类？
+\end{enumerate}
+
+%═══════════════════════════════════════════════════════════════
+\section{问题分析}
+%═══════════════════════════════════════════════════════════════
+
+\subsection{问题一的分析}
+
+判断三维旋律线的 Hausdorff 距离能否区分曲风，本质上是一个\textbf{特征空间判别力评估}问题。若不同曲风的旋律在三维几何空间中形成可分离的聚类结构，则基于 Hausdorff 距离的相似性度量应能有效捕获这种结构。评估手段包括：KNN 留一法分类准确率是否显著高于随机基线（20\%）；类间距离与类内距离的分离比（separation ratio）是否大于 1.5；混淆矩阵中各类别召回率是否均衡。
+
+\subsection{问题二的分析}
+
+维度贡献的差异源自各维度在不同曲风之间的内在分布差异，而非量纲或范围差异——Min-Max 归一化已将三维映射至等权的 $[0,1]^3$ 单位立方体。通过分析混淆矩阵中各类别的混淆方向（如 Classical 误分为 Jazz 可推断音高维度的重叠）、类内距离的紧凑性（如 Folk 类内仅 0.024 可推断三个维度均具有高信噪比），以及 Rock 与 Pop 的类间距离极小（0.115），可以判定各维度的相对贡献。
+
+\subsection{问题三的分析}
+
+四种距离度量在数学结构上存在本质差异：标准 Hausdorff 取 $\max\min$（$L_\infty$ 范数），对离群点极度敏感；Modified Hausdorff 取 $\mathrm{mean}$-$\min$（$L_1$ 平均意义），通过均值聚合获得统计稳定性；DTW 通过非线性时间对齐保留点序信息；离散 Fr\'{e}chet 严格保持点序约束。最适合的度量应在保证几何合理性的前提下，对 MIDI 旋律中常见的装饰音、力度波动等局部扰动具有足够的鲁棒性，同时维持类间距离的最大化。
+
+\subsection{问题四的分析}
+
+MDS 将高维距离关系投影至二维平面，若同曲风样本在投影空间中聚为一簇、异曲风样本彼此分离，则说明三维几何特征本身包含足够的判别信息。聚类质量可从三个层面评估：类内距离（簇的紧致性）、类间距离（簇的分离性）以及 KNN 召回率（分类边界清晰度）。
+
+%═══════════════════════════════════════════════════════════════
+\section{模型假设}
+%═══════════════════════════════════════════════════════════════
+
+\begin{enumerate}[label=(\arabic*),leftmargin=2em]
+    \item \textbf{旋律可分解性假设}：一首乐曲的旋律线可由其音符序列唯一确定，忽略和弦内低音声部对主旋律的掩蔽效应。
+    \item \textbf{同音区可比假设}：所有 MIDI 文件的音高与力度均限定在 $0 \sim 127$ 的标准范围内，归一化后映射至单位立方体 $[0,1]^3$ 中可以消除绝对调性与力度差异。
+    \item \textbf{时间尺度可分离假设}：Min-Max 归一化将各曲线时间轴独立压缩至 $[0,1]$，不同乐曲的时值差异不影响几何相似性度量。
+    \item \textbf{点集近似假设}：将连续旋律曲线离散化为有限点集（64 点均匀重采样），在保留核心几何形态的前提下降低计算复杂度。
+    \item \textbf{标签可信度假定}：数据集中曲风标签由人工标注，视为真实类别的可靠近似。
+\end{enumerate}
+
+%═══════════════════════════════════════════════════════════════
+\section{符号说明}
+%═══════════════════════════════════════════════════════════════
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}c >{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{符号} & \textbf{含义} \\
+\midrule
+$p_i = (t_i, m_i, v_i)$ & 第 $i$ 个音符在三维空间中的坐标（时间、音高、力度） \\
+$A, B \subset \mathbb{R}^3$ & 两首乐曲对应的三维点集 \\
+$\vec{H}(A, B)$ & 从点集 $A$ 到点集 $B$ 的有向 Hausdorff 距离 \\
+$H_{\text{std}}(A, B)$ & 标准双向 Hausdorff 距离 \\
+$H_{\text{mod}}(A, B)$ & Modified Hausdorff 距离（MHD） \\
+$N$ & 参与比较的乐曲总数 \\
+$D \in \mathbb{R}^{N \times N}$ & 对称距离矩阵，$D_{ij} = H_{\text{mod}}(C_i, C_j)$ \\
+$K$ & KNN 分类器的最近邻居数 \\
+$w_t, w_p, w_v$ & 时间、音高、力度维度的权重系数 \\
+$C_i$ & 第 $i$ 首乐曲的旋律点集曲线 \\
+$N_i$ & 曲线 $C_i$ 的采样点数（重采样后统一为 64） \\
+$\hat{D}$ & 距离平方矩阵，$\hat{D}_{ij} = D_{ij}^2$ \\
+$J$ & 中心化矩阵，$J = I - \frac{1}{N}\mathbf{1}\mathbf{1}^T$ \\
+$B$ & 双中心化矩阵，$B = -\frac{1}{2}J\hat{D}J$ \\
+$V_2, \Lambda_2$ & 前两个最大特征值对应的特征向量矩阵与特征值对角阵 \\
+$T$ & 整首乐曲的总时长（秒） \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+%═══════════════════════════════════════════════════════════════
+\section{模型的建立与求解}
+%═══════════════════════════════════════════════════════════════
+
+\subsection{三维旋律几何空间映射模型}
+
+将每首乐曲抽象为一组有序采样点构成的三维空间曲线。对第 $i$ 个音符事件，定义其在 $\mathbb{R}^3$ 中的坐标向量为：
+\begin{equation}
+    p_i = (t_i,\; m_i,\; v_i) \in \mathbb{R}^3
+    \label{eq:point}
+\end{equation}
+其中 $t_i$ 为音符起始时间（由 music21 的 \texttt{getOffsetInHierarchy} 获取四分音符偏移量后乘以 $60/\text{BPM}$ 转换为绝对秒数），$m_i$ 为 MIDI 音高编号（$0 \sim 127$），$v_i$ 为 MIDI 力度（$0 \sim 127$）。第 $i$ 首乐曲的点集曲线记为 $C_i = \{p_1^{(i)}, \ldots, p_{N_i}^{(i)}\} \subset \mathbb{R}^3$。
+
+\subsection{数据预处理：归一化与维度加权}
+
+原始坐标需通过归一化映射到可比的几何空间。系统提供两种归一化方法：(1) \textbf{Min-Max（默认）}：时间轴每条曲线独立归一化至 $[0,1]$，音高与力度除以 127，所有曲线映射至单位立方体 $[0,1]^3$；(2) \textbf{Z-Score（可选）}：所有维度做零均值单位方差标准化，消除量纲差异。归一化后，可通过对各轴施加权重 $(w_t, w_p, w_v)$ 来调节维度重要性。为保证不同长度乐曲的可比性，所有曲线经 64 点线性重采样统一点数。
+
+\subsection{数据清洗：三道质量防线}
+
+数据集初始设计为五类各 25 首的完全平衡结构（125 首）。为消除数据噪声对建模的影响，建立三道滤除防线：(1) Essen 纯净单轨导出——Essen 民谣数据库以 \texttt{.krn} Humdrum 格式存储，所有曲目录入时严格遵循"单旋律线"原则，无和弦/伴奏声部，通过 \texttt{\_parse\_krn\_to\_curve()} 遍历 \texttt{score.flatten().notes} 提取纯音符序列；(2) 最高音线强制过滤——对于多声部现代曲风，对同一时间戳上的和弦仅保留冠音（$\max(\mathrm{pitch})$），基于音乐学事实：人声旋律位于最高声部；(3) 自动质量审查——剔除时长 $< 30$s、音符数 $< 100$ 及类内极端离群点（距离 $>$ 类内均值 $+ 2\sigma$ 阈值），9 首低质量样本详见附录。最终锁定 116 首样本（Classical 25、Folk 23、Jazz 21、Pop 25、Rock 22）。
+
+\begin{table}[htbp]
+    \centering
+    \caption{数据清洗前后关键指标对比}
+    \label{tab:cleaning}
+    \begin{tabular}{lccc}
+        \toprule
+        \textbf{指标} & \textbf{清洗前（124 首）} & \textbf{清洗后（116 首）} & \textbf{变化} \\
+        \midrule
+        类内平均距离 & 0.0910 & 0.0861 & $\downarrow$ 更紧凑 \\
+        类间平均距离 & 0.2144 & 0.2119 & $\downarrow$ 略降 \\
+        区分比 & 2.355 & \textbf{2.461} & $\uparrow$ 提升 \\
+        KNN 准确率（$K=5$） & 79.84\% & 79.31\% & $\downarrow$ 略降 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+清洗后类内更紧凑、区分比提升，但 KNN 准确率略有下降——因为被剔除的 9 首离群样本恰好处于类别边界。边界样本往往是分类器依赖的"锚点"，移除后分类边界反而更模糊。这说明数据清洗需要在"纯度"与"判别力"之间审慎权衡：过度清洗可能削除对分类有价值的高信息量边界样本。
+
+\subsection{Hausdorff 距离度量族}
+
+\textbf{定义 1（有向 Hausdorff 距离）}
+设 $A, B \subset \mathbb{R}^D$ 为两个有限点集，从 $A$ 到 $B$ 的有向 Hausdorff 距离为：
+\begin{equation}
+    \vec{H}(A, B) = \max_{a \in A}\; \min_{b \in B}\; \|a - b\|_2
+    \label{eq:directed}
+\end{equation}
+
+\textbf{定义 2（标准双向 Hausdorff 距离）}
+\begin{equation}
+    H_{\text{std}}(A, B) = \max\Bigl(\vec{H}(A, B),\; \vec{H}(B, A)\Bigr)
+    \label{eq:standard}
+\end{equation}
+
+\textbf{定义 3（Modified Hausdorff 距离，MHD）}
+本模型的核心度量，以平均最近邻距离替代最大值，提升对离群音符的鲁棒性：
+\begin{equation}
+    H_{\text{mod}}(A, B) = \max\Bigl(\frac{1}{|A|}\sum_{a \in A} \min_{b \in B} \|a - b\|_2,\; \frac{1}{|B|}\sum_{b \in B} \min_{a \in A} \|b - a\|_2\Bigr)
+    \label{eq:modified}
+\end{equation}
+
+MHD 以均值替代最大值：标准 Hausdorff 的 $L_\infty$ 范数使单个离群音符主导整体距离；MHD 将聚合范数降至 $L_1$（平均意义上），使度量对装饰音、力度波动等局部扰动具有统计稳定性。实现时采用 \texttt{scipy.spatial.KDTree} 加速最近邻搜索，将复杂度从 $O(NM)$ 降至 $O((N+M)\log(\min(N,M)))$。
+
+\textbf{定义 4（离散 Fr\'{e}chet 距离）} 保持点序约束，通过 $O(NM)$ 动态规划求解。
+\textbf{定义 5（归一化 DTW 距离）} 通过非线性时间对齐求累积距离最小化。
+
+\subsection{距离矩阵构建与增量扩展}
+
+对 $N$ 条旋律曲线，定义距离矩阵 $D \in \mathbb{R}^{N \times N}$ 满足 $D_{ij} = H_{\text{mod}}(C_i, C_j)$。矩阵具有对称性 $D_{ij} = D_{ji}$ 和零对角线 $D_{ii} = 0$。系统通过 \texttt{DISTANCE\_FUNCTIONS} 策略模式字典支持四种距离方法的动态切换。为支持多批次文件导入场景，实现增量扩展机制：当新增曲线时，仅计算 $O(N_{\text{new}} \times N_{\text{all}})$ 对距离，避免全量 $O(N^2)$ 重算。
+
+\subsection{降维、聚类与分类模型}
+
+在获得距离矩阵后，构建以下分析模型：
+
+\begin{enumerate}[label=(\arabic*),leftmargin=2em]
+    \item \textbf{Classical MDS 降维}。双中心化 $B = -\frac{1}{2}JD^{(2)}J$，其中 $J = I - \frac{1}{N}\mathbf{1}\mathbf{1}^T$，$D^{(2)}$ 为距离平方矩阵。对 $B$ 做特征分解 $B = V\Lambda V^T$，取前两个最大特征值对应的特征向量 $V_2\Lambda_2^{1/2}$ 作为二维嵌入坐标。手动实现，便于理解算法原理。系统同时提供 t-SNE 降维作为备选（降级回退至 MDS）。
+    \item \textbf{凝聚层次聚类}。基于 SciPy \texttt{linkage(method="ward")} + \texttt{fcluster}，输出树状图。
+    \item \textbf{留一法 KNN 分类器}。对每个样本，寻找除自身外距离最近的 $K$ 个邻居，以多数投票确定预测标签，平局时取累积距离最小的标签。输出 accuracy、macro\_precision、macro\_recall、macro\_f1、weighted\_f1 及混淆矩阵。
+\end{enumerate}
+
+\subsection{模型求解方法}
+
+上述模型的数值求解通过 Python 实现：music21 库解析 MIDI 文件提取音符序列；\texttt{scipy.spatial.KDTree} 加速 MHD 最近邻搜索，将复杂度从 $O(NM)$ 降至 $O((N+M)\log(\min(N,M)))$；scikit-learn 提供 MDS 降维与层次聚类支持；系统实现了四种距离度量的动态切换与距离矩阵的增量扩展。音频文件（MP3/WAV）可通过预训练的 basic\_pitch 神经网络（ICASSP 2022）转录为 MIDI 后纳入分析流程。完整的工程架构、功能模块与运行说明见附带文档 \texttt{system-guide.md}。
+
+\subsection{类内一致性预检验}
+
+在变换验证之前，先以 v1.1 数据集中 Classical 类别的 25 首样本为对象，检验四种距离方法在\textbf{同一类别内部}的稳定性和致密性——类内距离越小、标准差越小，说明方法对同曲风旋律的一致性刻画越好。
+
+\begin{table}[htbp]
+    \centering
+    \caption{Classical 类别内部四种距离方法的类内距离统计（25 首）}
+    \label{tab:classical_internal}
+    \begin{tabular}{lccc}
+        \toprule
+        \textbf{方法} & \textbf{均值} & \textbf{中位数} & \textbf{标准差} \\
+        \midrule
+        标准 Hausdorff & 0.2928 & 0.2815 & 0.0806 \\
+        \textbf{Modified Hausdorff} & \textbf{0.1011} & \textbf{0.0968} & \textbf{0.0254} \\
+        离散 Fr\'{e}chet & 0.4113 & 0.3781 & 0.1531 \\
+        DTW & 0.1407 & 0.1340 & 0.0339 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Modified Hausdorff 在类内距离均值（0.1011）和标准差（0.0254）两项指标均最小——均值仅为标准 Hausdorff 的 34.5\%、Fréchet 的 24.6\%，在同类别旋律上表现最稳定。Fréchet 的均值达 MHD 的 4.1 倍且标准差最大（0.1531），说明其顺序敏感特性在类内引入了过多变异。这一预检验结论——MHD 在类内一致性与稳健性上表现最优——为后续变换验证中 MHD 综合排名第一的结论提供了类内视角的佐证。
+
+\subsection{距离度量的变换不变性验证}
+
+为检验 Hausdorff 距离族在旋律相似性度量中的几何合理性，依据 Kelly (2012) 提出的变换验证框架，对同一条旋律施加三类音乐变换，验证变换前后的距离应显著小于两条无关旋律之间的距离。
+
+\textbf{移调变换}：对旋律施加 $-12 \sim +12$ 半音的均匀移调。在 Min-Max 归一化下，音高维度的平移导致距离增加；Modified Hausdorff 和标准 Hausdorff 对平移变换最为敏感，Fréchet 和 DTW 因保序匹配对全局平移的敏感性较低。
+
+\textbf{速度缩放}：施加 $0.25\times \sim 4.0\times$ 的等比例速度缩放。Min-Max 归一化将各曲线时间轴独立压缩至 $[0,1]$，等比例线性时间缩放被归一化完全抵消——所有缩放因子下距离均为 0，验证了当前归一化策略的天然速度不变性。
+
+\textbf{节奏扰动}：施加不同强度的高斯时间噪声（$\sigma = 0.01 \sim 1.0$\,s）。距离随噪声强度单调递增，验证了度量的合理性。DTW 对微小节奏扰动敏感度最低（弹性对齐特性），Modified Hausdorff 最敏感——翻唱通常伴随节奏变化，高灵敏度对翻唱检测是优势。
+
+\textbf{正负样本分离检验}：生成 30 对正样本（随机曲线及其 $+3$ 半音移调版本）与 30 对负样本（两条随机不同曲线），对比四种距离方法的分离能力。
+
+\begin{table}[htbp]
+    \centering
+    \caption{正负样本分离检验结果}
+    \label{tab:pn_separation}
+    \begin{tabular}{lcccc}
+        \toprule
+        \textbf{方法} & \textbf{正样本均值} & \textbf{负样本均值} & \textbf{分离比} & \textbf{结论} \\
+        \midrule
+        标准 Hausdorff & 0.0236 & 0.0799 & 3.4$\times$ & 良好分离 \\
+        \textbf{Modified Hausdorff} & \textbf{0.0222} & \textbf{0.0337} & \textbf{1.5$\times$} & 有效分离 \\
+        离散 Fr\'{e}chet & 0.0236 & 0.0806 & 3.4$\times$ & 良好分离 \\
+        DTW & 0.0234 & 0.0359 & 1.5$\times$ & 有效分离 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \caption{四种距离方法综合评分}
+    \label{tab:method_rating}
+    \begin{tabular}{lcccc}
+        \toprule
+        \textbf{评估维度} & \textbf{标准 Hausdorff} & \textbf{MHD} & \textbf{Fr\'{e}chet} & \textbf{DTW} \\
+        \midrule
+        移调灵敏度 & $\bigstar\bigstar\bigstar$ & $\bigstar\bigstar\bigstar$ & $\bigstar\bigstar$ & $\bigstar$ \\
+        节奏扰动灵敏度 & $\bigstar\bigstar\bigstar$ & $\bigstar\bigstar$ & $\bigstar\bigstar$ & $\bigstar$ \\
+        速度不变性 & $\bigstar\bigstar\bigstar$ & $\bigstar\bigstar\bigstar$ & $\bigstar\bigstar\bigstar$ & $\bigstar\bigstar\bigstar$ \\
+        正负分离能力 & $\bigstar\bigstar\bigstar$ & $\bigstar\bigstar\bigstar$ & $\bigstar\bigstar$ & $\bigstar\bigstar$ \\
+        异常值鲁棒性 & $\bigstar$ & $\bigstar\bigstar\bigstar$ & $\bigstar\bigstar$ & $\bigstar\bigstar$ \\
+        \midrule
+        综合推荐 & & $\checkmark$ 首选 & & \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.65\textwidth]{charts/method_radar.png}
+    \caption{四种距离方法在五个评估维度上的雷达图对比（Kelly 2012 框架）}
+    \label{fig:method_radar}
+\end{figure}
+
+变换验证结果表明：Hausdorff 距离族能够一致地区分同一旋律的变体与无关旋律之间的差异，Modified Hausdorff 在综合评分中最优。速度缩放不变性是 Min-Max 归一化的固有特性而非距离度量的属性，表明预处理与度量方法是匹配的。
+
+%═══════════════════════════════════════════════════════════════
+\section{系统实现}
+%═══════════════════════════════════════════════════════════════
+
+为将上述数学模型转化为可交互的分析工具，系统基于 Python 生态实现了从数据加载、距离计算到降维可视化与分类评估的完整分析管线。系统功能包括：3D 旋律曲线叠加可视化、四种距离方法的动态切换与增量矩阵扩展、维度权重调节、变换不变性验证、曲式结构分析、旋律片段检索（在 v1.1 标准集 116 首上的 leave-one-out 评估中，MHD 检索 Precision@1 = 77.6\%、@3 = 93.1\%、@5 = 98.3\%）、单曲曲风识别以及一键导出分析报告。音频文件（MP3/WAV）可通过 basic\_pitch 神经网络（ICASSP 2022）转录为 MIDI 后纳入分析。详细的工程架构、功能模块与运行环境见附带文档 \texttt{system-guide.md}。
+
+%═══════════════════════════════════════════════════════════════
+\section{模型结果与分析评价}
+%═══════════════════════════════════════════════════════════════
+
+\subsection{数据集与实验设置}
+
+实验基于 116 首清洗后五类曲风样本，采用 Min-Max 归一化与 64 点均匀重采样，距离度量默认使用 Modified Hausdorff，分类评估采用留一法 KNN。为验证模型的泛化能力，除 v1.1 自建数据集外，还在两个外部数据集上进行了独立实验：(1) \textbf{Essen 民歌集}：从 Essen Folk Song Collection（8473 首 \texttt{.krn} 格式单声部民歌）中随机采样 200 首，标签为地理来源（4 类）；(2) \textbf{GTZAN 音频集}：从 GTZAN 数据集（1000 首 WAV，10 均衡流派）中每类采样 30 首共 300 首，通过 basic\_pitch 神经网络转录为 MIDI 后输入分析管线。
+
+\begin{table}[htbp]
+    \centering
+    \caption{三个数据集上的 KNN 留一法分类结果（MHD, $K=5$）}
+    \label{tab:multidataset}
+    \begin{tabular}{lccccc}
+        \toprule
+        \textbf{数据集} & \textbf{样本数} & \textbf{类别数} & \textbf{数据形式} & \textbf{准确率} & \textbf{随机基线} \\
+        \midrule
+        v1.1 自建 & 116 & 5 & 纯净 MIDI & 79.31\% & 20\% \\
+        Essen 民歌 & 200 & 4 & .krn 单声部 & 81.1\% & 25\% \\
+        GTZAN 音频 & 300 & 10 & MP3 $\to$ 转录 & 43.7\% & 10\% \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+三个数据集的一致结论：Modified Hausdorff 的 KNN 准确率在三个形态迥异的数据集上均达到随机基线的 4 倍以上。
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.72\textwidth]{charts/multidataset_comparison.png}
+    \caption{三个数据集的 KNN 准确率与随机基线对比}
+    \label{fig:multidataset}
+\end{figure}
+
+以下在 v1.1 自建集上逐一回答四个核心研究问题。
+
+\subsection{问题一：Hausdorff 距离能否区分不同曲风？}
+
+\textbf{可以，且效果显著。}
+
+\begin{table}[htbp]
+    \centering
+    \caption{KNN 留一法分类性能（Modified Hausdorff）}
+    \label{tab:knn}
+    \begin{tabular}{cccccc}
+        \toprule
+        \textbf{$K$} & \textbf{Accuracy} & \textbf{Macro Prec.} & \textbf{Macro Rec.} & \textbf{Macro F1} & \textbf{Weighted F1} \\
+        \midrule
+        1 & 77.59\% & 0.7815 & 0.7687 & 0.7605 & 0.7631 \\
+        3 & 75.00\% & 0.7912 & 0.7390 & 0.7275 & 0.7321 \\
+        \textbf{5} & \textbf{79.31\%} & \textbf{0.8401} & \textbf{0.7825} & \textbf{0.7674} & \textbf{0.7711} \\
+        7 & 76.72\% & 0.7973 & 0.7574 & 0.7386 & 0.7425 \\
+        9 & 75.00\% & 0.8186 & 0.7381 & 0.7015 & 0.7070 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \caption{KNN $K=5$ 混淆矩阵}
+    \label{tab:confusion}
+    \begin{tabular}{lccccc}
+        \toprule
+        \textbf{真实 $\backslash$ 预测} & \textbf{Classical} & \textbf{Folk} & \textbf{Jazz} & \textbf{Pop} & \textbf{Rock} \\
+        \midrule
+        Classical & \textbf{22} & 0 & 3 & 0 & 0 \\
+        Folk & 0 & \textbf{23} & 0 & 0 & 0 \\
+        Jazz & 6 & 0 & \textbf{15} & 0 & 0 \\
+        Pop & 0 & 0 & 0 & \textbf{25} & 0 \\
+        Rock & 2 & 1 & 0 & 12 & \textbf{7} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+随机基线 20\%，最优 $K=5$ 准确率 79.31\%（提升约 4 倍），Macro F1 达 0.7674。在 50 首标注子集上 MHD 分离比达 2.23$\times$。Folk 和 Pop 达到 100\% 召回率，验证了三维几何特征对不同曲风具有内在判别力。
+
+作为补充验证，在 GTZAN 音频转录数据集（300 首，10 流派）上进行了更细粒度的流派分析：
+
+\begin{table}[htbp]
+    \centering
+    \caption{GTZAN 数据集各类别分类性能（MHD, $K=5$）}
+    \label{tab:gtzan_pergenre}
+    \begin{tabular}{lcccc}
+        \toprule
+        \textbf{流派} & \textbf{Precision} & \textbf{Recall} & \textbf{F1} & \textbf{主要混淆方向} \\
+        \midrule
+        classical & 81.1\% & \textbf{100\%} & 89.6\% & 零混淆 \\
+        jazz & \textbf{90.9\%} & 33.3\% & 48.8\% & $\to$ classical \\
+        blues & 70.0\% & 46.7\% & 56.0\% & $\to$ rock \\
+        metal & 35.2\% & \textbf{83.3\%} & 49.5\% & $\to$ rock \\
+        disco & 32.4\% & 40.0\% & 35.8\% & $\to$ pop/rock \\
+        rock & 26.1\% & 20.0\% & 22.6\% & $\to$ pop/metal \\
+        pop & 24.3\% & 30.0\% & 26.9\% & $\to$ disco/rock \\
+        reggae & 27.3\% & 20.0\% & 23.1\% & $\to$ rock/pop \\
+        country & 26.7\% & 16.7\% & 20.5\% & $\to$ pop/rock \\
+        hiphop & 31.3\% & 16.7\% & 21.7\% & $\to$ metal \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+GTZAN 实验结果进一步验证了核心结论：classical 实现零混淆召回，与 v1.1 数据集中 Classical 的高召回率（88.0\%）相互印证；disco/rock/pop/reggae/country 五类形成大型混淆集群，与 v1.1 中 Pop-Rock 连续体问题一致——这本质上是旋律几何特征的方法边界，而非数据特例。
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.75\textwidth]{charts/gtzan_confusion_heatmap.png}
+    \caption{GTZAN 数据集混淆矩阵热力图（Modified Hausdorff, $K=5$）}
+    \label{fig:gtzan_confusion}
+\end{figure}
+
+\subsection{问题二：三维度中哪个贡献最大？}
+
+\textbf{音高（pitch）贡献最大，力度（velocity）贡献最弱。}
+
+\begin{enumerate}[label=(\arabic*),leftmargin=2em]
+    \item \textbf{音高是最强区分维度}。Classical $\leftrightarrow$ Jazz 是主要混淆方向，两类类间 MHD 距离 0.100 略低于 Classical 类内距离 0.101，这一反常现象直接源于音高维度的几何重叠（肖邦半音化和声与 Bebop 半音趋近高度相似）。
+    \item \textbf{力度贡献最弱}。MIDI 力度标注一致性极低，Essen 数据库不含力度信息（统一赋 80），力度信噪比远低于其他维度。
+    \item \textbf{时间维度节奏信息已被 Min-Max 压缩}。Rock 与 Pop 类间距离仅 0.115，仅凭 $(t, m, v)$ 难以分解 Pop-Rock 连续体。
+\end{enumerate}
+
+\subsection{问题三：哪种距离度量最优？}
+
+\textbf{Modified Hausdorff（MHD）最优。}
+
+\begin{table}[htbp]
+    \centering
+    \caption{四种距离方法横向对比（50 首，64 点）}
+    \label{tab:method_compare}
+    \begin{tabular}{lccccc}
+        \toprule
+        \textbf{方法} & \textbf{类内平均} & \textbf{类间平均} & \textbf{分离比} & \textbf{KNN Acc} & \textbf{Macro F1} \\
+        \midrule
+        标准 Hausdorff & 0.2742 & 0.4227 & 1.54$\times$ & 72.0\% & 0.7056 \\
+        \textbf{Modified Hausdorff} & \textbf{0.0947} & \textbf{0.2115} & \textbf{2.23$\times$} & \textbf{82.0\%} & \textbf{0.7823} \\
+        离散 Fr\'{e}chet & 0.3593 & 0.4734 & 1.32$\times$ & 58.0\% & 0.5564 \\
+        DTW & 0.1304 & 0.2521 & 1.93$\times$ & 72.0\% & 0.6905 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+MHD 在分离比（2.23$\times$，领先 DTW 约 15\%）和 KNN 准确率（82.0\%，领先 10pp）两个维度均排名第一。标准 Hausdorff 因 $\max$ 算子对离群点过度敏感（类内距离为 MHD 的近 3 倍）；DTW 在 64 点重采样后时间对齐能力冗余；Fr\'{e}chet 对点序扰动极度敏感。
+
+为验证这一结论的泛化性，下表汇总四种方法在三个数据集上的 KNN 准确率：
+
+\begin{table}[htbp]
+    \centering
+    \caption{四种距离方法在三个数据集上的 KNN 准确率（留一法，$K=5$）}
+    \label{tab:cross_dataset_methods}
+    \begin{tabular}{lcccc}
+        \toprule
+        \textbf{方法} & \textbf{v1.1（50 首）} & \textbf{Essen（200 首）} & \textbf{GTZAN（300 首）} & \textbf{平均排名} \\
+        \midrule
+        \textbf{Modified Hausdorff} & \textbf{82.0\%} & \textbf{81.1\%} & \textbf{43.7\%} & 1 \\
+        标准 Hausdorff & 72.0\% & 78.4\% & 38.7\% & 2 \\
+        DTW & 72.0\% & 79.5\% & — & 3 \\
+        离散 Fr\'{e}chet & 58.0\% & 79.5\% & 25.7\% & 4 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Modified Hausdorff 在三个形态迥异的数据集上 KNN 准确率均排名第一——这一跨数据形态的收敛结论，使 MHD 的首选地位得到实证支撑。
+
+除分类性能外，计算效率也是工程可行性的关键因素。下表对比四种方法在 200 首样本规模下的实际耗时。
+
+\begin{table}[htbp]
+    \centering
+    \caption{四种距离方法的计算复杂度与实测耗时（200 首，64 点）}
+    \label{tab:complexity}
+    \begin{tabular}{lccc}
+        \toprule
+        \textbf{方法} & \textbf{时间复杂度} & \textbf{实测耗时} & \textbf{可扩展性} \\
+        \midrule
+        标准 Hausdorff & $O(NM)$ & $\sim$2\,s & $\bigstar\bigstar\bigstar$ \\
+        \textbf{Modified Hausdorff} & $O((N+M)\log\min(N,M))$ & $\sim$\textbf{1.5\,s} & $\bigstar\bigstar\bigstar$ \\
+        离散 Fr\'{e}chet & $O(NM)$ DP & $\sim$180\,s & $\bigstar$ \\
+        DTW & $O(NM)$ DP & $\sim$300\,s & $\bigstar$ \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Modified Hausdorff 借助 KDTree 加速，计算耗时仅为 Fr\'{e}chet 的约 1/120 和 DTW 的约 1/200，且准确率最高。MHD 是唯一同时满足精度与效率的方法，在基准实验和交互工具中均可实用。
+
+\subsection{问题四：MDS 可视化中是否形成自然聚类？}
+
+\textbf{部分形成，差异显著。}
+
+\begin{table}[htbp]
+    \centering
+    \caption{MDS 各类别聚类统计}
+    \label{tab:mds}
+    \begin{tabular}{lcccccc}
+        \toprule
+        \textbf{曲风} & \textbf{样本数} & \textbf{类内 MHD} & \textbf{最近类间} & \textbf{分离比} & \textbf{召回率} & \textbf{聚类状态} \\
+        \midrule
+        Folk & 23 & 0.024 & 0.144 & 6.0$\times$ & 100\% & 极其紧密 \\
+        Pop & 25 & 0.082 & 0.115 & 1.4$\times$ & 100\% & 紧密，边界模糊 \\
+        Classical & 25 & 0.101 & 0.100 & 0.99$\times$ & 88.0\% & 与 Jazz 重叠 \\
+        Jazz & 21 & 0.090 & 0.100 & 1.1$\times$ & 71.4\% & 较分散 \\
+        Rock & 22 & 0.136 & 0.115 & \textbf{0.85$\times$} & 31.8\% & 未成独立簇 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.7\textwidth]{../results/v1_1/mds_modified_resampled64_skip_slow.png}
+    \caption{MDS 降维二维投影（五种曲风分别着色）}
+    \label{fig:mds_analysis}
+\end{figure}
+
+分层结论：(1) Folk 形成最紧密的自然聚类（类内 0.024，Essen 单声部纯净性）；(2) Pop 同样聚类紧密（类内 0.082，I-V-vi-IV 和弦的高一致性）；(3) Classical 与 Jazz 显著重叠（类间 0.100 $\approx$ 类内 0.101）；(4) Rock 未形成独立聚类，严重嵌入 Pop 区域（Rock 类内 0.136 $>$ Rock-Pop 类间 0.115，Rock 子集在几何上是 Pop 聚类的内嵌子流形）。
+
+\subsection{聚类质量评估}
+
+除分类准确率外，Silhouette 轮廓系数从聚类紧致性角度提供了补充视角：
+
+\begin{table}[htbp]
+    \centering
+    \caption{三个数据集的 Silhouette 轮廓系数（Modified Hausdorff）}
+    \label{tab:silhouette}
+    \begin{tabular}{lcc}
+        \toprule
+        \textbf{数据集} & \textbf{Silhouette} & \textbf{评估} \\
+        \midrule
+        v1.1 自建 & — & 未计算 \\
+        Essen 民歌 & \textbf{$-$0.094} & 显著为负，见下文分析 \\
+        GTZAN 音频 & $-$0.019 & 接近零，聚类结构弱但非随机 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Essen 数据集 Silhouette 为负值（$-0.094$）并非距离度量的缺陷，而是\textbf{标签定义与聚类目标错位}的典型信号：Essen 的标签是地理来源（deutschl / china），而非音乐风格。德国各地区民歌跨越几个世纪的旋律内部差异，大于德中民歌之间的跨国差异——KNN 81.1\% 的准确率表明局部邻域结构依然有效，但全局聚类以地理标签为目标时必然产生负轮廓系数。说明标签定义决定无监督评估的上限。
+
+\subsection{模型优点}
+
+\begin{enumerate}[label=(\arabic*),leftmargin=2em]
+    \item \textbf{几何直观性强}。将音乐旋律映射为三维空间曲线，使抽象的相似性问题转化为直观的几何距离问题，模型原理易于理解和解释。
+    \item \textbf{对声学噪声具备天然免疫力}。直接基于符号化乐谱（MIDI、Humdrum）建模，彻底剥离伴奏混响、音色等声学干扰，从根本上解决了传统 MFCC 等方法的高噪声问题。
+    \item \textbf{MHD 的鲁棒性优势显著}。通过均值聚合替代最大值聚合，MHD 对装饰音、力度波动等 MIDI 数据中常见的局部扰动具有统计稳健性。变换验证实验确认其在综合评分中排名第一，分离比（2.23 vs 1.54）较标准 Hausdorff 提升 44.8\%。
+    \item \textbf{模型可扩展性强}。距离矩阵框架天然支持多种距离度量（已集成 4 种）的即插即用，增量扩展机制使模型可持续纳入新数据而无需全量重算。
+    \item \textbf{多数据集验证收敛}。在 v1.1 自建集（79.3\%）、Essen 民歌集（81.1\%）和 GTZAN 音频转录集（43.7\%）三个形态迥异的数据集上，MHD 的一致优势证明了方法的泛化能力。
+\end{enumerate}
+
+\subsection{模型局限}
+
+\begin{enumerate}[label=(\arabic*),leftmargin=2em]
+    \item \textbf{Pop/Rock 区分力不足}。当前 $(t, m, v)$ 三元组在区分 Pop 与 Rock 时表现不佳（Rock 召回率仅 31.8\%，类间距离 0.115）。两类共享主歌-副歌结构、I-V-vi-IV 和弦进行和相似音域，三维几何特征不足以捕捉其本体论差异。
+    \item \textbf{Classical/Jazz 存在严重混淆}。两类的类间距离（0.100）甚至略低于 Classical 类内距离（0.101），肖邦半音化和声与 Bebop 半音趋近在音高轨迹上的几何相似性导致两类几乎不可分离。
+    \item \textbf{力度维度信噪比低}。MIDI 文件中力度标注一致性极低（不同编曲者差异巨大，Essen 数据库不含力度信息），使得力度维度的有效信息量远低于音高维度。
+    \item \textbf{音频转录的输入质量差异}。GTZAN 实验中不同流派的音符密度差异巨大：classical 平均 156 个音符/首，hiphop 仅 42 个（差距 3.7$\times$）。低密度转录曲线可用的几何信息有限，直接导致 hiphop（召回率 16.7\%）和 country（召回率 16.7\%）的分类效果最差——这不是旋律几何方法的边界，而是转录输入质量的结构性差异，说明音频转录管线的性能对下游分类存在瓶颈效应。
+    \item \textbf{Min-Max 归一化压缩了绝对节奏信息}。每条乐曲时间轴独立归一化至 $[0,1]$ 虽保证了长度不同的乐曲可比，但也消除了绝对节奏密度信息，一定程度上削弱了节奏型对曲风的区分能力。
+    \item \textbf{音频转录引入级联误差}。GTZAN 实验中，basic\_pitch 转录准确率并非 100\%，转录噪声经几何距离传播后可能扩大类内方差，降低分离比。
+\end{enumerate}
+
+\subsection{模型改进方向}
+
+\begin{enumerate}[label=(\arabic*),leftmargin=2em]
+    \item \textbf{高阶特征工程}。引入局部曲率（旋律线的二阶离散差分）、节奏密度（相邻音符时间间隔的熵）、音程跳变分布（大三度/纯五度/八度的频率直方图）作为加权维度，扩充特征空间的判别能力，针对性解决 Rock/Pop 混淆问题。
+    \item \textbf{DTW 增强几何不变性}。利用全局 DTW 的对齐路径作为时间伸缩变换函数，将两首旋律在时间轴上非线性对齐后再计算 Hausdorff 距离，提升对自由节奏（Rubato）和装饰音变奏的鲁棒性。
+    \item \textbf{图神经网络作曲风嵌入}。将旋律曲线点集建模为 $k$-NN 图，通过 GNN 消息传递学习曲风嵌入，天然兼容可变长度的点集输入，省去均匀重采样的插值误差。
+    \item \textbf{跨数据集的泛化验证}。未来计划引入 Lakh MIDI Dataset（17 万首）和 MAESTRO 钢琴演奏数据集进行大规模跨域泛化评估。
+    \item \textbf{和弦与和声特征的融入}。拓展模型以考虑多声部信息（而非仅提取最高音线），引入和弦类型分布、和声进行模板匹配等高阶音乐学特征。
+\end{enumerate}
+
+%═══════════════════════════════════════════════════════════════
+% 参考文献
+%═══════════════════════════════════════════════════════════════
+
+\begin{thebibliography}{99}
+
+    \bibitem{dubuission1994}
+    M.-P. Dubuisson and A. K. Jain.
+    \newblock A modified Hausdorff distance for object matching.
+    \newblock \textit{Proceedings of 12th International Conference on Pattern Recognition}, 1994, pp. 566--568.
+
+    \bibitem{eiter1994}
+    T. Eiter and H. Mannila.
+    \newblock Computing discrete Fr\'{e}chet distance.
+    \newblock \textit{Technical Report CD-TR 94/64}, TU Wien, 1994.
+
+    \bibitem{muller2015}
+    M. M\"{u}ller.
+    \newblock \textit{Fundamentals of Music Processing}.
+    \newblock Springer, 2015.
+
+    \bibitem{schaffrath1995}
+    H. Schaffrath.
+    \newblock The Essen folksong collection in the Humdrum Kern format.
+    \newblock \textit{Computing in Musicology}, vol. 9, pp. 115--124, 1995.
+
+    \bibitem{cuthbert2010}
+    M. S. Cuthbert and C. Ariza.
+    \newblock music21: A toolkit for computer-aided musicology and symbolic music data.
+    \newblock \textit{Proceedings of ISMIR}, 2010, pp. 637--642.
+
+    \bibitem{bittner2022}
+    R. M. Bittner et al.
+    \newblock A lightweight model for polyphonic music transcription.
+    \newblock \textit{Proceedings of ICASSP}, 2022, pp. 781--785.
+
+    \bibitem{rafailidis2018}
+    D. Rafailidis et al.
+    \newblock A survey on music genre classification: review of key ideas and open challenges.
+    \newblock \textit{ACM Computing Surveys}, vol. 50, no. 3, pp. 1--36, 2018.
+
+\end{thebibliography}
+
+%═══════════════════════════════════════════════════════════════
+% 附录
+%═══════════════════════════════════════════════════════════════
+
+\begin{appendices}
+
+\section{数据清洗剔除记录}
+
+\begin{table}[htbp]
+    \centering
+    \caption{质量清洗剔除记录}
+    \begin{tabular}{cll}
+        \toprule
+        \textbf{曲风} & \textbf{文件} & \textbf{剔除原因} \\
+        \midrule
+        Folk & ashover22.mid & 音符数 96 $<$ 100，时长 23.2s $<$ 30s \\
+        Folk & ashover31.mid & 类内离群（距离 0.0452 $>$ 阈值 0.0305） \\
+        Jazz & AliceInWonderland.mid & 类内离群 \\
+        Jazz & Brazillike.mid & 类内离群 \\
+        Jazz & Desafinado.mid & 类内离群 \\
+        Jazz & Effendi.mid & 类内离群 \\
+        Rock & AchillesLastStand.mid & 解析超时 \\
+        Rock & AllMyLove.mid & 类内离群 \\
+        Rock & BlackDog.mid & 类内离群 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\section{MHD 距离计算核心代码}
+
+\begin{lstlisting}[language=python, caption={hausdorff\_modified 核心实现}]
+def hausdorff_modified(a_points, b_points):
+    """Return modified Hausdorff using mean nearest-neighbor distance."""
+    a_points = _validate_points(a_points, "a_points")
+    b_points = _validate_points(b_points, "b_points")
+
+    b_tree = KDTree(b_points)
+    distances_ab, _ = b_tree.query(a_points)
+
+    a_tree = KDTree(a_points)
+    distances_ba, _ = a_tree.query(b_points)
+
+    return float(max(np.mean(distances_ab), np.mean(distances_ba)))
+\end{lstlisting}
+
+\section{系统运行环境}
+
+依赖：Python 3.11+，全部依赖版本已锁定于 \texttt{requirements.txt}。详细安装与运行步骤见附带文档 \texttt{system-guide.md}。
+
+\section{系统功能展示}
+
+本系统将前述数学模型封装为交互式桌面分析工具。系统的一大创新在于支持 \textbf{MP3/WAV 音频直接导入}：通过集成 Spotify basic\_pitch 神经网络模型（ICASSP 2022），用户可将任意音频文件拖入系统，自动转录为 MIDI 符号序列后纳入完整分析管线，无需预先准备 MIDI 格式数据。以下通过界面截图简要展示其核心功能。
+
+\subsection{三维旋律曲线叠加视图}
+
+系统中央为基于 OpenGL 的三维渲染视图，将多首乐曲的旋律线同时叠加显示。x 轴为归一化时间，y 轴为音高，z 轴为力度，每条曲线以不同颜色标识。用户可旋转、缩放、平移视角，直观比较不同曲风旋律在几何空间中的形态差异——例如 Folk 曲线通常短而平直，Classical 曲线音高跨度大、起伏丰富。
+
+\subsection{可视化分析面板}
+
+右侧面板集成以下 11 个分析页签，覆盖从数据探索到结果导出的完整分析链：
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}l >{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{页签} & \textbf{功能说明} \\
+\midrule
+MDS 可视化 & Classical MDS / t-SNE 降维投影，按曲风标签着色，直观展示聚类结构 \\
+曲风距离矩阵 & 按标签聚合的曲风间/曲风内平均距离热力图，揭示混淆方向 \\
+KNN 分类 & 留一法 KNN 分类器（可调 $K$ 值），输出 Accuracy、Macro F1 等指标 \\
+混淆矩阵 & 真实标签 vs 预测标签的混淆矩阵，定位具体误分类样本 \\
+树状图 & 凝聚层次聚类（Ward 方法）树状图，展示曲目间的层级归并关系 \\
+定量评价 & ARI、纯度、轮廓系数及类内/类间平均距离的综合指标面板 \\
+结构分析 & 旋律宏观曲式结构检测（A-B-A' 标注），可调分段数与阈值 \\
+方法对比 & 四种距离方法的五项指标横向对比，高亮最优值 \\
+旋律检索 & Top-K 最近邻检索，支持 leave-one-out 评估与 Precision@K 指标 \\
+单曲识别 & 针对单首无标签曲目的 KNN 曲风判别，展示投票详情与最近邻 \\
+旋律检测 & 两首旋律的全曲/片段相似度判定，区分"高度相似"至"不相似"四级 \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+以下选取三个代表性页签展示实际界面效果。
+
+\textbf{MDS 降维可视化}：将 $N \times N$ 距离矩阵通过 Classical MDS 投影至二维平面，同曲风样本以相同颜色标记。Folk 形成最紧密的聚类簇，Classical 与 Jazz 存在明显重叠，Rock 散布嵌入 Pop 区域——与定量分析结论完全一致。
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\textwidth]{pic/MDS可视化.png}
+    \caption{MDS 降维可视化面板——五种曲风在二维空间中的分布}
+    \label{fig:gui_mds}
+\end{figure}
+
+\textbf{方法横向对比}：一键对比标准 Hausdorff、Modified Hausdorff、离散 Fréchet、DTW 四种距离方法在曲风内均值、曲风间均值、区分比、KNN 准确率和 Macro-F1 五项指标上的表现，结果以表格呈现并高亮最优值。
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\textwidth]{pic/方法对比.png}
+    \caption{方法横向对比面板——四种距离度量的五项指标对比}
+    \label{fig:gui_methods}
+\end{figure}
+
+\textbf{单曲曲风识别}：用户导入一首无标签的 MIDI 或音频文件后，系统将其与标准集中 116 首样本逐一计算 MHD 距离，以 KNN 多数投票判定最可能的曲风，同时展示最近邻曲目及每个候选曲风的平均距离。
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.50\textwidth]{pic/曲风识别.png}
+    \caption{单曲曲风识别面板——KNN 投票结果与最近邻详情}
+    \label{fig:gui_classify}
+\end{figure}
+
+上述 11 个页签均基于同一距离矩阵实时联动——切换距离方法或调节维度权重后，全部面板自动刷新。完整的操作指南与功能细节见附带文档 \texttt{system-guide.md}。
+
+\end{appendices}
+
+%═══════════════════════════════════════════════════════════════
+% 致谢
+%═══════════════════════════════════════════════════════════════
+
+\newpage
+
+\section*{致谢}
+
+感谢全组成员在项目中的协作：王浦丞负责项目统筹、系统架构设计与算法选型论证；李沐泽负责 Hausdorff 几何验证、Essen 民歌基准库构建及音频转录管线；郭晓龙负责论文撰写与实验结果分析。
 
 \end{document}

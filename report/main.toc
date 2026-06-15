@@ -1,0 +1,36 @@
+\contentsline {section}{\numberline {一、}问题重述}{5}{section.1}%
+\contentsline {section}{\numberline {二、}问题分析}{5}{section.2}%
+\contentsline {subsection}{\numberline {2\,.\,1}问题一的分析}{5}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2\,.\,2}问题二的分析}{5}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2\,.\,3}问题三的分析}{5}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2\,.\,4}问题四的分析}{6}{subsection.2.4}%
+\contentsline {section}{\numberline {三、}模型假设}{6}{section.3}%
+\contentsline {section}{\numberline {四、}符号说明}{7}{section.4}%
+\contentsline {section}{\numberline {五、}模型的建立与求解}{7}{section.5}%
+\contentsline {subsection}{\numberline {5\,.\,1}三维旋律几何空间映射模型}{7}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5\,.\,2}数据预处理：归一化与维度加权}{7}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5\,.\,3}数据清洗：三道质量防线}{8}{subsection.5.3}%
+\contentsline {subsection}{\numberline {5\,.\,4}Hausdorff 距离度量族}{8}{subsection.5.4}%
+\contentsline {subsection}{\numberline {5\,.\,5}距离矩阵构建与增量扩展}{9}{subsection.5.5}%
+\contentsline {subsection}{\numberline {5\,.\,6}降维、聚类与分类模型}{9}{subsection.5.6}%
+\contentsline {subsection}{\numberline {5\,.\,7}模型求解方法}{9}{subsection.5.7}%
+\contentsline {subsection}{\numberline {5\,.\,8}类内一致性预检验}{10}{subsection.5.8}%
+\contentsline {subsection}{\numberline {5\,.\,9}距离度量的变换不变性验证}{10}{subsection.5.9}%
+\contentsline {section}{\numberline {六、}系统实现}{12}{section.6}%
+\contentsline {section}{\numberline {七、}模型结果与分析评价}{12}{section.7}%
+\contentsline {subsection}{\numberline {7\,.\,1}数据集与实验设置}{12}{subsection.7.1}%
+\contentsline {subsection}{\numberline {7\,.\,2}问题一：Hausdorff 距离能否区分不同曲风？}{13}{subsection.7.2}%
+\contentsline {subsection}{\numberline {7\,.\,3}问题二：三维度中哪个贡献最大？}{14}{subsection.7.3}%
+\contentsline {subsection}{\numberline {7\,.\,4}问题三：哪种距离度量最优？}{15}{subsection.7.4}%
+\contentsline {subsection}{\numberline {7\,.\,5}问题四：MDS 可视化中是否形成自然聚类？}{16}{subsection.7.5}%
+\contentsline {subsection}{\numberline {7\,.\,6}聚类质量评估}{17}{subsection.7.6}%
+\contentsline {subsection}{\numberline {7\,.\,7}模型优点}{17}{subsection.7.7}%
+\contentsline {subsection}{\numberline {7\,.\,8}模型局限}{18}{subsection.7.8}%
+\contentsline {subsection}{\numberline {7\,.\,9}模型改进方向}{18}{subsection.7.9}%
+\contentsline {section}{参考文献}{19}{section*.19}%
+\contentsline {section}{附录 \numberline {A}数据清洗剔除记录}{19}{appendix.1.A}%
+\contentsline {section}{附录 \numberline {B}MHD 距离计算核心代码}{19}{appendix.1.B}%
+\contentsline {section}{附录 \numberline {C}系统运行环境}{20}{appendix.1.C}%
+\contentsline {section}{附录 \numberline {D}系统功能展示}{20}{appendix.1.D}%
+\contentsline {subsection}{\numberline {4\,.\,1}三维旋律曲线叠加视图}{21}{subsection.1.D.1}%
+\contentsline {subsection}{\numberline {4\,.\,2}可视化分析面板}{21}{subsection.1.D.2}%
